@@ -11,7 +11,6 @@ import (
 	apperrors "github.com/QtaroAXE/image-redactor/internal/domain/errors"
 )
 
-// FileSystem - файловая система
 type FileSystem struct {
 	inputDir     string
 	outputDir    string
@@ -20,7 +19,6 @@ type FileSystem struct {
 	mu           sync.RWMutex
 }
 
-// NewFileSystem - создает новую файловую систему
 func NewFileSystem(inputDir, outputDir, processedDir, errorDir string) (*FileSystem, error) {
 	dirs := []string{inputDir, outputDir, processedDir, errorDir}
 
@@ -42,7 +40,6 @@ func NewFileSystem(inputDir, outputDir, processedDir, errorDir string) (*FileSys
 	}, nil
 }
 
-// GetInputFiles - возвращает список файлов для обработки
 func (fs *FileSystem) GetInputFiles() ([]string, error) {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
@@ -76,7 +73,6 @@ func (fs *FileSystem) GetInputFiles() ([]string, error) {
 	return files, nil
 }
 
-// isImageFile - проверяет, является ли файл изображением
 func (fs *FileSystem) isImageFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
@@ -87,7 +83,6 @@ func (fs *FileSystem) isImageFile(path string) bool {
 	}
 }
 
-// GetOutputPath - генерирует путь для выходного файла
 func (fs *FileSystem) GetOutputPath(inputPath string, format string) string {
 	fileName := filepath.Base(inputPath)
 	ext := filepath.Ext(fileName)
@@ -96,7 +91,6 @@ func (fs *FileSystem) GetOutputPath(inputPath string, format string) string {
 	return filepath.Join(fs.outputDir, nameWithoutExt+"."+format)
 }
 
-// SaveOutput - сохраняет сжатое изображение
 func (fs *FileSystem) SaveOutput(data []byte, outputPath string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -120,7 +114,6 @@ func (fs *FileSystem) SaveOutput(data []byte, outputPath string) error {
 	return nil
 }
 
-// MoveToProcessed - перемещает обработанный файл
 func (fs *FileSystem) MoveToProcessed(path string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -139,7 +132,6 @@ func (fs *FileSystem) MoveToProcessed(path string) error {
 	return nil
 }
 
-// MoveToError - перемещает файл с ошибкой
 func (fs *FileSystem) MoveToError(path string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -158,7 +150,6 @@ func (fs *FileSystem) MoveToError(path string) error {
 	return nil
 }
 
-// ReadFile - читает файл
 func (fs *FileSystem) ReadFile(path string) ([]byte, error) {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
@@ -175,13 +166,10 @@ func (fs *FileSystem) ReadFile(path string) ([]byte, error) {
 	return data, nil
 }
 
-// FileExists - проверяет существование файла
 func (fs *FileSystem) FileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
-
-// GetFileSize - возвращает размер файла
 func (fs *FileSystem) GetFileSize(path string) (int64, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -194,12 +182,9 @@ func (fs *FileSystem) GetFileSize(path string) (int64, error) {
 	return info.Size(), nil
 }
 
-// GetInputDir - возвращает входную директорию
 func (fs *FileSystem) GetInputDir() string {
 	return fs.inputDir
 }
-
-// GetOutputDir - возвращает выходную директорию
 func (fs *FileSystem) GetOutputDir() string {
 	return fs.outputDir
 }
