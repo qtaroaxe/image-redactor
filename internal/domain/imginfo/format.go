@@ -1,8 +1,9 @@
-package image
+package imginfo
 
 import (
-	"fmt"
 	"strings"
+
+	apperrors "github.com/QtaroAXE/image-redactor/internal/domain/errors"
 )
 
 // struct to create supported formats
@@ -36,7 +37,7 @@ func NewFormat(input string) (Format, error) {
 	inputForm = strings.ToLower(inputForm)
 
 	if inputForm == "" {
-		return Format{}, fmt.Errorf("image: image format cannot be empty")
+		return Format{}, apperrors.New(apperrors.TypeInvalidInput, "image format cannot be empty")
 	}
 	switch inputForm {
 	case "jpeg", "jpg":
@@ -46,6 +47,6 @@ func NewFormat(input string) (Format, error) {
 	case "webp":
 		return FormatWebP, nil
 	default:
-		return Format{}, fmt.Errorf("image: unsupported image format: %s", input)
+		return Format{}, apperrors.New(apperrors.TypeUnsupported, "unsupported image format: "+inputForm).WithContext("format", inputForm)
 	}
 }

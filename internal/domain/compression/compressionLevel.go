@@ -2,6 +2,8 @@ package compression
 
 import (
 	"fmt"
+
+	apperrors "github.com/QtaroAXE/image-redactor/internal/domain/errors"
 )
 
 type CompressionLevel struct {
@@ -12,7 +14,7 @@ var (
 	DefaultCompressionLevel = CompressionLevel{6}
 )
 
-func (g CompressionLevel) GetLevel() int {
+func (g CompressionLevel) Value() int {
 	return g.value
 }
 func (g CompressionLevel) IsZero() bool {
@@ -21,16 +23,16 @@ func (g CompressionLevel) IsZero() bool {
 
 // Увеличивает на 1
 func NewCompressionLevel(input int) (CompressionLevel, error) {
-	var compressionLevel CompressionLevel
-
 	if input == 0 {
-		compressionLevel = DefaultCompressionLevel
-	} else {
-		compressionLevel.value = input
+		return DefaultCompressionLevel, nil
 	}
-	if compressionLevel.value < 1 || compressionLevel.value > 10 {
-		return CompressionLevel{}, fmt.Errorf("compression: compression quality cannot be lower than 1 or higher than 100")
-	} else {
-		return compressionLevel, nil
+	if input < 1 || input > 10 {
+		err := fmt.Errorf("compression level must be between 1 and 10, got %d", input)
+		return CompressionLevel{}, apperrors.Wrap(
+			err,
+			apperrors.TypeInvalidInput,
+			"invalid compression level",
+		).WithContext("level", input)
 	}
+	return CompressionLevel{value: input}, nil
 }

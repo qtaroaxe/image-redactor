@@ -1,4 +1,4 @@
-package image_test
+package imginfo_test
 
 import (
 	"fmt"

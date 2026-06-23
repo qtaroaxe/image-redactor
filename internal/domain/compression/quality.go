@@ -2,6 +2,8 @@ package compression
 
 import (
 	"fmt"
+
+	apperrors "github.com/QtaroAXE/image-redactor/internal/domain/errors"
 )
 
 type Quality struct {
@@ -12,19 +14,24 @@ var (
 	DefaultQuality = Quality{85}
 )
 
-func (q Quality) GetPercent() int {
+func (q Quality) Value() int {
 	return q.value
 }
 func (q Quality) IsZero() bool {
 	return q.value == 0
 }
 
-// Увеличивает на 1
 func NewQuality(input int) (Quality, error) {
-	quality := Quality{input}
-	if quality.value < 1 || quality.value > 100 {
-		return Quality{}, fmt.Errorf("compression: compression quality cannot be lower than 1 or higher than 100")
-	} else {
-		return quality, nil
+	if input == 0 {
+		return DefaultQuality, nil
 	}
+	if input < 1 || input > 100 {
+		err := fmt.Errorf("quality must be between 1 and 100, got %d", input)
+		return Quality{}, apperrors.Wrap(
+			err,
+			apperrors.TypeInvalidInput,
+			"invalid compression quality",
+		).WithContext("quality_value", input)
+	}
+	return Quality{value: input}, nil
 }
