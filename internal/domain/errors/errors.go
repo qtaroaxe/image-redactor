@@ -45,6 +45,7 @@ const (
 	TypeCompress      = "COMPRESS_ERROR"
 	TypeValidate      = "VALIDATE_ERROR"
 	TypeUnknown       = "UNKNOWN_ERROR"
+	TypeTimeout       = "TIME_OUT"
 )
 
 // New - создает новую ошибку с АВТОМАТИЧЕСКИМ захватом файла

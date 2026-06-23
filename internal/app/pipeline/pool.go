@@ -1,145 +1,405 @@
+// internal/service/compressor/pool.go
 package pipeline
 
-// import (
-// 	"log"
-// 	"sync"
-// )
+import (
+	"context"
+	"fmt"
+	"log"
+	"sync"
+	"sync/atomic"
+	"time"
 
-// // Pool — пул воркеров
-// type Pool struct {
-// 	taskQueue   chan Task       // Очередь задач
-// 	workers     int             // Количество воркеров
-// 	wg          sync.WaitGroup  // Ожидание завершения
-// 	stopChan    chan struct{}   // Сигнал остановки
-// 	mu          sync.RWMutex    // Защита статусов
-// 	tasksStatus map[string]Task // Хранилище статусов задач
-// }
+	apperrors "github.com/QtaroAXE/image-redactor/internal/domain/errors"
+	"github.com/QtaroAXE/image-redactor/internal/domain/imginfo"
+	"github.com/QtaroAXE/image-redactor/internal/infra/codec/compressor"
+	"github.com/QtaroAXE/image-redactor/internal/infra/fs"
+)
 
-// // NewPool — создаёт новый пул воркеров
-// func NewPool(numWorkers, queueSize int) *Pool {
-// 	return &Pool{
-// 		taskQueue:   make(chan Task, queueSize),
-// 		workers:     numWorkers,
-// 		stopChan:    make(chan struct{}),
-// 		tasksStatus: make(map[string]Task),
-// 	}
-// }
+// WorkerPool - пул воркеров для многопоточного сжатия
+type WorkerPool struct {
+	// Конфигурация
+	workerCount int
+	batchSize   int
 
-// // Start — запускает всех воркеров
-// func (p *Pool) Start() {
-// 	for i := 1; i <= p.workers; i++ {
-// 		p.wg.Add(1)
-// 		go p.worker(i)
-// 	}
-// 	log.Printf("✅ Запущено %d воркеров, очередь на %d задач", p.workers, cap(p.taskQueue))
-// }
+	// Сервисы
+	compressor *CompressorService
+	fs         *fs.FileSystem
 
-// // worker — горутина-воркер
-// func (p *Pool) worker(id int) {
-// 	defer p.wg.Done()
+	// Каналы
+	jobQueue    chan Job
+	resultQueue chan Result
 
-// 	for {
-// 		select {
-// 		case task := <-p.taskQueue:
-// 			log.Printf("👷 Воркер %d: начал задачу %s (%s → %s)",
-// 				id, task.ID, task.InputPath, task.OutputPath)
+	// Управление
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 
-// 			// Обновляем статус
-// 			p.updateTaskStatus(task.ID, "processing", "", "")
+	// Статистика
+	stats   *PoolStats
+	statsMu sync.RWMutex
 
-// 			// Обрабатываем изображение
-// 			resultPath, err := ProcessImage(task)
+	// Обработка ошибок
+	errorHandler func(error)
+}
 
-// 			if err != nil {
-// 				log.Printf("❌ Воркер %d: ошибка задачи %s: %v", id, task.ID, err)
-// 				p.updateTaskStatus(task.ID, "error", err.Error(), "")
-// 			} else {
-// 				log.Printf("✅ Воркер %d: завершил задачу %s → %s", id, task.ID, resultPath)
-// 				p.updateTaskStatus(task.ID, "done", "", resultPath)
-// 			}
+// Job - задача на сжатие
+type Job struct {
+	ID         string
+	SourcePath string
+	Source     imginfo.SourceImage
+	Target     imginfo.TargetImage
+	Priority   int
+	CreatedAt  time.Time
+	RetryCount int
+}
 
-// 		case <-p.stopChan:
-// 			log.Printf("🛑 Воркер %d: остановлен", id)
-// 			return
-// 		}
-// 	}
-// }
+// Result - результат сжатия
+type Result struct {
+	JobID       string
+	SourcePath  string
+	OutputPath  string
+	Error       error
+	Duration    time.Duration
+	SizeBefore  int64
+	SizeAfter   int64
+	Success     bool
+	ProcessedAt time.Time
+}
 
-// // AddTask — добавляет задачу в очередь
-// func (p *Pool) AddTask(task Task) string {
-// 	p.updateTaskStatus(task.ID, "pending", "", "")
-// 	p.taskQueue <- task
-// 	log.Printf("📥 Задача %s добавлена в очередь (очередь: %d/%d)",
-// 		task.ID, len(p.taskQueue), cap(p.taskQueue))
-// 	return task.ID
-// }
+// PoolStats - статистика пула
+type PoolStats struct {
+	TotalJobs     int64
+	CompletedJobs int64
+	FailedJobs    int64
+	RetriedJobs   int64
+	ActiveWorkers int32
+	QueueLength   int32
+	TotalDuration time.Duration
+	StartTime     time.Time
+}
 
-// // GetTaskStatus — возвращает статус задачи
-// func (p *Pool) GetTaskStatus(taskID string) (Task, bool) {
-// 	p.mu.RLock()
-// 	defer p.mu.RUnlock()
+// PoolConfig - конфигурация пула
+type PoolConfig struct {
+	WorkerCount  int
+	BatchSize    int
+	QueueSize    int
+	ErrorHandler func(error)
+}
 
-// 	task, exists := p.tasksStatus[taskID]
-// 	return task, exists
-// }
+// NewWorkerPool - создает новый пул воркеров
+func NewWorkerPool(
+	compressor *CompressorService,
+	fs *fs.FileSystem,
+	cfg PoolConfig,
+) *WorkerPool {
+	if cfg.WorkerCount <= 0 {
+		cfg.WorkerCount = 4
+	}
+	if cfg.BatchSize <= 0 {
+		cfg.BatchSize = 10
+	}
+	if cfg.QueueSize <= 0 {
+		cfg.QueueSize = cfg.WorkerCount * 2
+	}
 
-// // updateTaskStatus — обновляет статус задачи
-// func (p *Pool) updateTaskStatus(taskID, status, errorMsg, resultPath string) {
-// 	p.mu.Lock()
-// 	defer p.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
 
-// 	task, exists := p.tasksStatus[taskID]
-// 	if !exists {
-// 		task = Task{ID: taskID}
-// 	}
+	pool := &WorkerPool{
+		workerCount:  cfg.WorkerCount,
+		batchSize:    cfg.BatchSize,
+		compressor:   compressor,
+		fs:           fs,
+		jobQueue:     make(chan Job, cfg.QueueSize),
+		resultQueue:  make(chan Result, cfg.QueueSize),
+		ctx:          ctx,
+		cancel:       cancel,
+		stats:        &PoolStats{StartTime: time.Now()},
+		errorHandler: cfg.ErrorHandler,
+	}
 
-// 	task.Status = status
-// 	task.ErrorMsg = errorMsg
-// 	task.ResultPath = resultPath
-// 	p.tasksStatus[taskID] = task
-// }
+	return pool
+}
 
-// // Stop — останавливает пул воркеров
-// func (p *Pool) Stop() {
-// 	log.Println("🛑 Остановка пула воркеров...")
-// 	close(p.stopChan)
-// 	close(p.taskQueue)
-// 	p.wg.Wait()
-// 	log.Println("✅ Пул воркеров остановлен")
-// }
+// Start - запускает пул воркеров
+func (p *WorkerPool) Start() {
+	log.Printf("Starting worker pool with %d workers", p.workerCount)
 
-// // GetQueueLength — длина очереди
-// func (p *Pool) GetQueueLength() int {
-// 	return len(p.taskQueue)
-// }
+	// Запускаем воркеров
+	for i := 0; i < p.workerCount; i++ {
+		p.wg.Add(1)
+		go p.worker(i)
+	}
 
-// // GetStats — статистика пула
-// func (p *Pool) GetStats() map[string]interface{} {
-// 	p.mu.RLock()
-// 	defer p.mu.RUnlock()
+	// Запускаем обработчик результатов
+	p.wg.Add(1)
+	go p.resultProcessor()
 
-// 	var pending, processing, done, failed int
-// 	for _, task := range p.tasksStatus {
-// 		switch task.Status {
-// 		case "pending":
-// 			pending++
-// 		case "processing":
-// 			processing++
-// 		case "done":
-// 			done++
-// 		case "error":
-// 			failed++
-// 		}
-// 	}
+	// Запускаем мониторинг
+	p.wg.Add(1)
+	go p.monitor()
+}
 
-// 	return map[string]interface{}{
-// 		"total_tasks":    len(p.tasksStatus),
-// 		"pending":        pending,
-// 		"processing":     processing,
-// 		"done":           done,
-// 		"failed":         failed,
-// 		"queue_length":   len(p.taskQueue),
-// 		"queue_capacity": cap(p.taskQueue),
-// 		"workers":        p.workers,
-// 	}
-// }
+// Stop - останавливает пул воркеров
+func (p *WorkerPool) Stop() {
+	log.Println("Stopping worker pool...")
+	p.cancel()
+	close(p.jobQueue)
+	p.wg.Wait()
+	close(p.resultQueue)
+	log.Println("Worker pool stopped")
+}
+
+// AddJob - добавляет задачу в очередь
+func (p *WorkerPool) AddJob(source imginfo.SourceImage, target imginfo.TargetImage) error {
+	select {
+	case <-p.ctx.Done():
+		return apperrors.New(
+			apperrors.TypeInternal,
+			"pool is stopped",
+		)
+	default:
+		job := Job{
+			ID:         fmt.Sprintf("job_%d", time.Now().UnixNano()),
+			SourcePath: source.Path(),
+			Source:     source,
+			Target:     target,
+			CreatedAt:  time.Now(),
+			RetryCount: 0,
+		}
+
+		atomic.AddInt64(&p.stats.TotalJobs, 1)
+		atomic.AddInt32(&p.stats.QueueLength, 1)
+
+		p.jobQueue <- job
+		return nil
+	}
+}
+
+// AddJobs - добавляет несколько задач в очередь
+func (p *WorkerPool) AddJobs(jobs []Job) error {
+	for _, job := range jobs {
+		if err := p.AddJob(job.Source, job.Target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GetStats - возвращает статистику пула
+func (p *WorkerPool) GetStats() PoolStats {
+	p.statsMu.RLock()
+	defer p.statsMu.RUnlock()
+
+	stats := *p.stats
+	stats.QueueLength = atomic.LoadInt32(&p.stats.QueueLength)
+	stats.ActiveWorkers = atomic.LoadInt32(&p.stats.ActiveWorkers)
+	return stats
+}
+
+// Wait - ожидает завершения всех задач
+func (p *WorkerPool) Wait() {
+	// Ждем пока очередь опустеет
+	for {
+		if len(p.jobQueue) == 0 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Даем время на завершение текущих задач
+	time.Sleep(time.Second)
+}
+
+// worker - горутина воркера
+func (p *WorkerPool) worker(id int) {
+	defer p.wg.Done()
+
+	log.Printf("Worker %d started", id)
+
+	for {
+		select {
+		case <-p.ctx.Done():
+			log.Printf("Worker %d stopping", id)
+			return
+
+		case job, ok := <-p.jobQueue:
+			if !ok {
+				log.Printf("Worker %d: job queue closed", id)
+				return
+			}
+
+			atomic.AddInt32(&p.stats.ActiveWorkers, 1)
+			atomic.AddInt32(&p.stats.QueueLength, -1)
+
+			result := p.processJob(id, job)
+			p.resultQueue <- result
+
+			atomic.AddInt32(&p.stats.ActiveWorkers, -1)
+		}
+	}
+}
+
+// processJob - обрабатывает одну задачу
+func (p *WorkerPool) processJob(workerID int, job Job) Result {
+	startTime := time.Now()
+
+	result := Result{
+		JobID:       job.ID,
+		SourcePath:  job.Source.Path(),
+		ProcessedAt: time.Now(),
+	}
+
+	// Получаем размер исходного файла
+	sizeBefore, err := p.fs.GetFileSize(job.Source.Path())
+	if err != nil {
+		result.Error = apperrors.Wrap(
+			err,
+			apperrors.TypeIO,
+			"failed to get source file size",
+		).WithWorker(workerID)
+		result.Success = false
+		atomic.AddInt64(&p.stats.FailedJobs, 1)
+		return result
+	}
+	result.SizeBefore = sizeBefore
+
+	// Проверяем существование файла
+	if !p.fs.FileExists(job.Source.Path()) {
+		err := apperrors.New(
+			apperrors.TypeNotFound,
+			"source file does not exist",
+		).WithPath(job.Source.Path()).WithWorker(workerID)
+
+		result.Error = err
+		result.Success = false
+		atomic.AddInt64(&p.stats.FailedJobs, 1)
+
+		// Перемещаем в error директорию
+		p.fs.MoveToError(job.Source.Path())
+		return result
+	}
+
+	// Выполняем сжатие
+	err = p.compressor.CompressImage(job.Source, job.Target)
+	if err != nil {
+		// Добавляем информацию о воркере
+		if appErr, ok := err.(*apperrors.AppError); ok {
+			appErr.WithWorker(workerID)
+		}
+
+		result.Error = err
+		result.Success = false
+		atomic.AddInt64(&p.stats.FailedJobs, 1)
+
+		// Если ошибка временная - пробуем повторить
+		if job.RetryCount < 3 && p.isRetryableError(err) {
+			job.RetryCount++
+			atomic.AddInt64(&p.stats.RetriedJobs, 1)
+
+			// Повторная попытка с задержкой
+			backoff := time.Duration(job.RetryCount) * time.Second
+			time.Sleep(backoff)
+
+			log.Printf("Retrying job %s (attempt %d)", job.ID, job.RetryCount)
+			p.jobQueue <- job
+			return result
+		}
+
+		// Перемещаем в error директорию
+		p.fs.MoveToError(job.Source.Path())
+		return result
+	}
+
+	// Получаем размер выходного файла
+	sizeAfter, err := p.fs.GetFileSize(job.Target.Path())
+	if err == nil {
+		result.SizeAfter = sizeAfter
+	}
+
+	result.OutputPath = job.Target.Path()
+	result.Success = true
+	result.Duration = time.Since(startTime)
+
+	atomic.AddInt64(&p.stats.CompletedJobs, 1)
+
+	// Обновляем общую длительность
+	p.statsMu.Lock()
+	p.stats.TotalDuration += result.Duration
+	p.statsMu.Unlock()
+
+	// Перемещаем исходный файл в processed
+	if err := p.fs.MoveToProcessed(job.Source.Path()); err != nil {
+		log.Printf("Failed to move processed file: %v", err)
+	}
+
+	return result
+}
+
+// resultProcessor - обрабатывает результаты
+func (p *WorkerPool) resultProcessor() {
+	defer p.wg.Done()
+
+	for result := range p.resultQueue {
+		if result.Error != nil {
+			if p.errorHandler != nil {
+				p.errorHandler(result.Error)
+			}
+			log.Printf("Job %s failed: %v", result.JobID, result.Error)
+		} else {
+			log.Printf("Job %s completed in %v (%.2f%% reduction)",
+				result.JobID,
+				result.Duration,
+				p.calculateReduction(result.SizeBefore, result.SizeAfter),
+			)
+		}
+	}
+}
+
+// monitor - мониторинг пула
+func (p *WorkerPool) monitor() {
+	defer p.wg.Done()
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case <-ticker.C:
+			stats := p.GetStats()
+			log.Printf("Pool stats: Jobs=%d, Completed=%d, Failed=%d, Active=%d, Queue=%d",
+				stats.TotalJobs,
+				stats.CompletedJobs,
+				stats.FailedJobs,
+				stats.ActiveWorkers,
+				stats.QueueLength,
+			)
+		}
+	}
+}
+
+// isRetryableError - проверяет, можно ли повторить задачу
+func (p *WorkerPool) isRetryableError(err error) bool {
+	if appErr, ok := err.(*apperrors.AppError); ok {
+		switch appErr.Type {
+		case apperrors.TypeIO:
+			return true
+		case apperrors.TypeTimeout:
+			return true
+		case apperrors.TypeInternal:
+			return true
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+// calculateReduction - вычисляет процент сжатия
+func (p *WorkerPool) calculateReduction(before, after int64) float64 {
+	if before == 0 {
+		return 0
+	}
+	return (1 - float64(after)/float64(before)) * 100
+}

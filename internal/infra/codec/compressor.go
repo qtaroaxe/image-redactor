@@ -108,7 +108,6 @@ func (s *CompressorService) encodeJPEG(img image.Image, out *os.File, quality co
 
 // encodePNG - кодирует PNG с уровнем сжатия
 func (s *CompressorService) encodePNG(img image.Image, out *os.File, level compression.CompressionLevel) error {
-	// Конвертируем уровень (1-10) в png уровень (0-9)
 	pngLevel := s.mapCompressionLevel(level.Value())
 
 	encoder := &png.Encoder{
