@@ -14,6 +14,7 @@ import (
 
 	"github.com/QtaroAXE/image-redactor/internal/domain/compression"
 	apperrors "github.com/QtaroAXE/image-redactor/internal/domain/errors"
+	"github.com/QtaroAXE/image-redactor/internal/domain/imginfo"
 	"github.com/QtaroAXE/image-redactor/internal/infra/fs"
 )
 
@@ -28,7 +29,7 @@ func NewCompressorService(fs *fs.FileSystem) *CompressorService {
 }
 
 // CompressImage - сжимает изображение
-func (s *CompressorService) CompressImage(src image.SourceImage, target image.TargetImage) error {
+func (s *CompressorService) CompressImage(src imginfo.SourceImage, target imginfo.TargetImage) error {
 	// Читаем исходный файл
 	data, err := s.fs.ReadFile(src.Path())
 	if err != nil {
@@ -36,7 +37,7 @@ func (s *CompressorService) CompressImage(src image.SourceImage, target image.Ta
 	}
 
 	// Декодируем изображение
-	img, format, err := image.Decode(bytes.NewReader(data))
+	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return apperrors.WrapWithFile(
 			err,

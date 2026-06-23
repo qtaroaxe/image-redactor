@@ -4,28 +4,28 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/QtaroAXE/image-redactor/internal/domain/image"
+	"github.com/QtaroAXE/image-redactor/internal/domain/imginfo"
 )
 
 func TestNewFormat_Valid(t *testing.T) {
 	cases := []struct {
 		in   string
-		want image.Format
+		want imginfo.Format
 	}{
-		{"jpeg", image.FormatJPEG},
-		{"JPEG", image.FormatJPEG},
-		{"png", image.FormatPNG},
-		{"  png", image.FormatPNG},
-		{"png  ", image.FormatPNG},
-		{"PNG", image.FormatPNG},
-		{"jpg", image.FormatJPEG},
-		{"JPG", image.FormatJPEG},
-		{"webp", image.FormatWebP},
-		{"WEBP", image.FormatWebP},
+		{"jpeg", imginfo.FormatJPEG},
+		{"JPEG", imginfo.FormatJPEG},
+		{"png", imginfo.FormatPNG},
+		{"  png", imginfo.FormatPNG},
+		{"png  ", imginfo.FormatPNG},
+		{"PNG", imginfo.FormatPNG},
+		{"jpg", imginfo.FormatJPEG},
+		{"JPG", imginfo.FormatJPEG},
+		{"webp", imginfo.FormatWebP},
+		{"WEBP", imginfo.FormatWebP},
 	}
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {
-			got, err := image.NewFormat(tc.in)
+			got, err := imginfo.NewFormat(tc.in)
 			if err != nil {
 				t.Fatalf("NewFormat(%q) returned error: %v", tc.in, err)
 			} else {
@@ -44,7 +44,7 @@ func TestNewFormat_Invalid(t *testing.T) {
 	cases := []string{"", " ", "bmp", "gif", "tuff", "something"}
 	for _, in := range cases {
 		t.Run(in, func(t *testing.T) {
-			got, err := image.NewFormat(in)
+			got, err := imginfo.NewFormat(in)
 			if err != nil {
 				t.Fatalf("NewFormat(%q) = %v, want error", in, got)
 			}
@@ -56,14 +56,14 @@ func TestNewFormat_Invalid(t *testing.T) {
 }
 
 func TestFormat_StringAndIsZero(t *testing.T) {
-	if image.FormatJPEG.String() != "jpeg" {
-		t.Errorf("FormatJPEG.String() = %q, want %q", image.FormatJPEG.String(), "jpeg")
+	if imginfo.FormatJPEG.String() != "jpeg" {
+		t.Errorf("FormatJPEG.String() = %q, want %q", imginfo.FormatJPEG.String(), "jpeg")
 	}
-	var zero image.Format
+	var zero imginfo.Format
 	if !zero.IsZero() {
 		t.Errorf("zero Format should report IsZero() == true")
 	}
-	if image.FormatPNG.IsZero() {
+	if imginfo.FormatPNG.IsZero() {
 		t.Errorf("FormatPNG must not be zero")
 	}
 }
