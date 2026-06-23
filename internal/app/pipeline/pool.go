@@ -11,7 +11,7 @@ import (
 
 	apperrors "github.com/QtaroAXE/image-redactor/internal/domain/errors"
 	"github.com/QtaroAXE/image-redactor/internal/domain/imginfo"
-	"github.com/QtaroAXE/image-redactor/internal/infra/compressor"
+	compressor "github.com/QtaroAXE/image-redactor/internal/infra/codec"
 	"github.com/QtaroAXE/image-redactor/internal/infra/fs"
 )
 
