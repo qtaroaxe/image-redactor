@@ -11,7 +11,7 @@ import (
 
 	apperrors "github.com/QtaroAXE/image-redactor/internal/domain/errors"
 	"github.com/QtaroAXE/image-redactor/internal/domain/imginfo"
-	"github.com/QtaroAXE/image-redactor/internal/infra/codec/compressor"
+	"github.com/QtaroAXE/image-redactor/internal/infra/compressor"
 	"github.com/QtaroAXE/image-redactor/internal/infra/fs"
 )
 
@@ -22,7 +22,7 @@ type WorkerPool struct {
 	batchSize   int
 
 	// Сервисы
-	compressor *CompressorService
+	compressor *compressor.CompressorService
 	fs         *fs.FileSystem
 
 	// Каналы
@@ -88,7 +88,7 @@ type PoolConfig struct {
 
 // NewWorkerPool - создает новый пул воркеров
 func NewWorkerPool(
-	compressor *CompressorService,
+	compressor *compressor.CompressorService,
 	fs *fs.FileSystem,
 	cfg PoolConfig,
 ) *WorkerPool {
