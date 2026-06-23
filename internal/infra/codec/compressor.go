@@ -1,4 +1,3 @@
-// internal/service/compressor/compressor.go
 package compressor
 
 import (
