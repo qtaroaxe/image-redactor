@@ -18,25 +18,20 @@ import (
 	"github.com/QtaroAXE/image-redactor/internal/infra/fs"
 )
 
-// CompressorService - сервис сжатия изображений
 type CompressorService struct {
 	fs *fs.FileSystem
 }
 
-// NewCompressorService - создает новый сервис сжатия
 func NewCompressorService(fs *fs.FileSystem) *CompressorService {
 	return &CompressorService{fs: fs}
 }
 
-// CompressImage - сжимает изображение
 func (s *CompressorService) CompressImage(src imginfo.SourceImage, target imginfo.TargetImage) error {
-	// Читаем исходный файл
 	data, err := s.fs.ReadFile(src.Path())
 	if err != nil {
 		return err
 	}
 
-	// Декодируем изображение
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return apperrors.WrapWithFile(
@@ -46,7 +41,6 @@ func (s *CompressorService) CompressImage(src imginfo.SourceImage, target imginf
 		).WithPath(src.Path())
 	}
 
-	// Проверяем размеры
 	if img.Bounds().Dx() == 0 || img.Bounds().Dy() == 0 {
 		return apperrors.NewWithFile(
 			apperrors.TypeValidate,
@@ -54,7 +48,6 @@ func (s *CompressorService) CompressImage(src imginfo.SourceImage, target imginf
 		).WithPath(src.Path())
 	}
 
-	// Создаем выходной файл
 	if err := os.MkdirAll(filepath.Dir(target.Path()), 0755); err != nil {
 		return apperrors.WrapWithFile(
 			err,
@@ -73,7 +66,6 @@ func (s *CompressorService) CompressImage(src imginfo.SourceImage, target imginf
 	}
 	defer out.Close()
 
-	// Выбираем формат и применяем настройки
 	switch target.Format().String() {
 	case "jpeg":
 		return s.encodeJPEG(img, out, target.Quality())
@@ -89,7 +81,6 @@ func (s *CompressorService) CompressImage(src imginfo.SourceImage, target imginf
 	}
 }
 
-// encodeJPEG - кодирует JPEG с качеством
 func (s *CompressorService) encodeJPEG(img image.Image, out *os.File, quality compression.Quality) error {
 	opts := &jpeg.Options{
 		Quality: quality.Value(),
@@ -105,8 +96,6 @@ func (s *CompressorService) encodeJPEG(img image.Image, out *os.File, quality co
 
 	return nil
 }
-
-// encodePNG - кодирует PNG с уровнем сжатия
 func (s *CompressorService) encodePNG(img image.Image, out *os.File, level compression.CompressionLevel) error {
 	pngLevel := s.mapCompressionLevel(level.Value())
 
@@ -125,16 +114,14 @@ func (s *CompressorService) encodePNG(img image.Image, out *os.File, level compr
 	return nil
 }
 
-// encodeWebP - кодирует WebP (заглушка)
+// заглушка
 func (s *CompressorService) encodeWebP(img image.Image, out *os.File, quality compression.Quality) error {
-	// TODO: реализовать WebP с библиотекой
 	return apperrors.NewWithFile(
 		apperrors.TypeUnsupported,
 		"WebP encoding not yet implemented",
 	).WithContext("quality", quality.Value())
 }
 
-// mapCompressionLevel - маппинг уровня сжатия
 func (s *CompressorService) mapCompressionLevel(level int) png.CompressionLevel {
 	switch {
 	case level <= 1:
@@ -146,7 +133,6 @@ func (s *CompressorService) mapCompressionLevel(level int) png.CompressionLevel 
 	}
 }
 
-// ResizeImage - изменяет размер изображения
 func (s *CompressorService) ResizeImage(img image.Image, width, height int) image.Image {
 	srcBounds := img.Bounds()
 	srcWidth := srcBounds.Dx()

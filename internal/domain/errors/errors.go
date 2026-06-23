@@ -47,17 +47,14 @@ func New(errType, message string) *AppError {
 		Message: message,
 		Context: make(map[string]interface{}),
 	}
-	// Захватываем информацию о файле (пропускаем 2 уровня: New и вызывающий код)
 	err.captureFileInfo(2)
 	return err
 }
 
-// NewWithFile - создает ошибку с явным указанием файла (устаревший, используйте New)
 func NewWithFile(errType, message string) *AppError {
 	return New(errType, message)
 }
 
-// Wrap - оборачивает существующую ошибку с АВТОМАТИЧЕСКИМ захватом файла
 func Wrap(err error, errType, message string) *AppError {
 	if err == nil {
 		return nil
